@@ -5,30 +5,37 @@
 3. **Context**: A stack tracking the currently running effect for dependency collection.
 
 ### Why need cleanup in `createEffect`
-The `cleanup` function is used to remove the effect from the signal’s dependency list before running the effect’s function. By doing this, it ensures that once an effect is executed, it is no longer subscribed to the signal that it is about to modify. This step is crucial for preventing the effect from being triggered by its own modifications.
+The `cleanup` function is used to remove the effect from the signal’s dependency list before running the effect’s function. Without cleanup, effects accumulate dependencies from previous runs, leading to memory leaks (old subscriptions never removed) or stale dependencies (effects reacting to signals they no longer use).
 
 ```js
-// Create signal for count
-const [count, setCount] = createSignal(0);
+const [cond, setCond] = createSignal(true);
+const [A, setA] = createSignal('A');
+const [B, setB] = createSignal('B');
 
-// Create effect that watches count
 createEffect(() => {
-  console.log("Count has changed to", count());
-});
-
-// Create effect that resets the count to 0 when a certain condition is met
-createEffect(() => {
-  if (count() >= 5) {
-    console.log("Count is 5 or more, resetting...");
-    setCount(0);  // This modifies the signal, triggering a re-run of the first effect
+  if (cond()) {
+    console.log('Effect depends on A:', A());
+  } else {
+    console.log('Effect depends on B:', B());
   }
 });
 
-// Simulate changing the count
-setCount(1);  // Logs: "Count has changed to 1"
-setCount(3);  // Logs: "Count has changed to 3"
-setCount(5);  // Logs: "Count has changed to 5" and "Count is 5 or more, resetting..." then "Count has changed to 0"
+setCond(false);
+// Effect re-runs, outputs: "Effect depends on B: B"
+
+// Now update signal A (which should NOT trigger the effect)
+setA('Updated A');
+// With cleanup:    No effect runs
+// Without cleanup: Effect runs again with "Effect depends on B: B" (incorrect)
 ```
+
+1. **Initial run:** The effect subscribes to `cond` and `A`
+2. **After `setCond(false)`:** 
+   - With cleanup: Removes subscriptions to `cond` and `A`, then subscribes to `cond` and `B`
+   - Without cleanup: Keeps old subscription to `A` while adding `B`
+3. **When updating A:**
+   - With cleanup: No effect runs (correct)
+   - Without cleanup: Effect runs because it still had subscription to `A` (incorrect)
 
 ### Purpose of the `observer.dependencies`
 ```
